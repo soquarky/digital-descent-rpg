@@ -1,0 +1,70 @@
+name: Godot CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  export:
+    name: Export Game
+    runs-on: ubuntu-latest
+    container:
+      image: barichello/godot-ci:4.2.1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+      
+      - name: Setup
+        run: |
+          mkdir -v -p ~/.local/share/godot/export_templates
+          mv /root/.local/share/godot/templates/* ~/.local/share/godot/export_templates/
+      
+      - name: Build Linux
+        run: |
+          mkdir -v -p build/linux
+          godot --headless --verbose --export-release "Linux/X11" build/linux/digital-descent.x86_64
+      
+      - name: Build Windows
+        run: |
+          mkdir -v -p build/windows
+          godot --headless --verbose --export-release "Windows Desktop" build/windows/digital-descent.exe
+      
+      - name: Build Web
+        run: |
+          mkdir -v -p build/web
+          godot --headless --verbose --export-release "Web" build/web/index.html
+      
+      - name: Upload Linux Build
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-build
+          path: build/linux
+      
+      - name: Upload Windows Build
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: build/windows
+      
+      - name: Upload Web Build
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-build
+          path: build/web
+
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    container:
+      image: barichello/godot-ci:4.2.1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Run Unit Tests
+        run: |
+          godot --headless --script tests/run_tests.gd

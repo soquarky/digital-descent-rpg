@@ -1,0 +1,41 @@
+{
+	"name": "Digital Descent RPG - Godot Development",
+	"image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+	
+	"features": {
+		"ghcr.io/devcontainers/features/common-utils:2": {
+			"installZsh": true,
+			"installOhMyZsh": true,
+			"upgradePackages": true
+		},
+		"ghcr.io/devcontainers/features/git:1": {
+			"version": "latest"
+		}
+	},
+	
+	"postCreateCommand": "bash .devcontainer/setup.sh",
+	
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"geequlim.godot-tools",
+				"EditorConfig.EditorConfig",
+				"ms-vscode.live-server"
+			],
+			"settings": {
+				"godot_tools.gdscript_lsp_server_port": 6005,
+				"godot_tools.editor_path": "/usr/local/bin/godot",
+				"files.associations": {
+					"*.gd": "gdscript",
+					"*.tscn": "godot-resource"
+				}
+			}
+		}
+	},
+	
+	"forwardPorts": [6005, 8000],
+	
+	"mounts": [
+		"source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"
+	]
+}
