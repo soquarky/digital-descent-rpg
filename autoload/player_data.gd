@@ -1,109 +1,168 @@
 extends Node
 
-enum MentalState { ADULT, CHILD }
+# PlayerData Singleton - Manages all persistent player state
+# Signals for state changes
+signal state_changed(new_state: String)
+signal health_changed(new_health: int)
+signal memory_collected(memory: Dictionary)
+signal circle_progressed(circle: int)
 
-# Core player stats
-var health: float = 100.0
-var max_health: float = 100.0
-var hyperthymesia_integrity: float = 100.0  # Perfect recall at 100%
-
-# Mental state tracking
-var current_state: MentalState = MentalState.ADULT
-var state_switch_cooldown: float = 0.0
-const STATE_SWITCH_COOLDOWN_TIME: float = 1.0
-
-# Memory and progression
-var memory_fragments: Array[String] = []
-var circles_completed: int = 0
+# Player State
+var current_state: String = "adult"  # "adult" or "child"
+var max_health: int = 100
+var current_health: int = 100
 var current_circle: int = 1
+var circle_progress: Dictionary = {}
 
-# Neural pathway strengths (skill progression)
-var neural_pathways: Dictionary = {
-	"logic": 0,        # Adult mind power
-	"intuition": 0,   # Child mind power
-	"investigation": 0,  # FBI skills
-	"empathy": 0      # Healing/bonding
+# Memory System
+var memories: Array[Dictionary] = []
+var equipped_memory: Dictionary = {}
+var memory_types: Dictionary = {
+	"joy": Color.YELLOW,
+	"trauma": Color.RED,
+	"regret": Color.BLUE,
+	"desire": Color.MAGENTA,
+	"anger": Color.DARK_RED,
+	"hope": Color.GREEN,
+	"despair": Color.BLACK
 }
 
-# Signals
-signal state_changed(new_state: MentalState)
-signal health_changed(new_health: float)
-signal hyperthymesia_damaged(new_integrity: float)
-signal memory_fragment_collected(fragment_id: String)
-
 func _ready():
-	print("[PlayerData] Initialized")
+	add_to_group("autoload")
+	_initialize_game()
 
-func switch_state():
-	"""Toggle between ADULT and CHILD states"""
-	if state_switch_cooldown > 0:
-		return
-	
-	if current_state == MentalState.ADULT:
-		current_state = MentalState.CHILD
-	else:
-		current_state = MentalState.ADULT
-	
-	state_switch_cooldown = STATE_SWITCH_COOLDOWN_TIME
+func _initialize_game():
+	current_state = "adult"
+	current_health = max_health
+	current_circle = 1
+	circle_progress = {
+		1: {"visited": true, "completed": false, "enemies_defeated": 0},
+		2: {"visited": false, "completed": false, "enemies_defeated": 0},
+		3: {"visited": false, "completed": false, "enemies_defeated": 0},
+		4: {"visited": false, "completed": false, "enemies_defeated": 0},
+		5: {"visited": false, "completed": false, "enemies_defeated": 0},
+		6: {"visited": false, "completed": false, "enemies_defeated": 0},
+		7: {"visited": false, "completed": false, "enemies_defeated": 0},
+		8: {"visited": false, "completed": false, "enemies_defeated": 0},
+		9: {"visited": false, "completed": false, "enemies_defeated": 0},
+	}
+
+# State Switching
+func toggle_state():
+	match current_state:
+		"adult":
+			current_state = "child"
+		"child":
+			current_state = "adult"
 	state_changed.emit(current_state)
-	
-	print("[PlayerData] Switched to state: ", "CHILD" if current_state == MentalState.CHILD else "ADULT")
 
-func _process(delta):
-	if state_switch_cooldown > 0:
-		state_switch_cooldown -= delta
+func is_adult_state() -> bool:
+	return current_state == "adult"
 
-func take_damage(amount: float):
-	"""Reduce health"""
-	health = max(0, health - amount)
-	health_changed.emit(health)
-	
-	if health <= 0:
+func is_child_state() -> bool:
+	return current_state == "child"
+
+# Health Management
+func take_damage(amount: int):
+	current_health = max(0, current_health - amount)
+	health_changed.emit(current_health)
+	if current_health <= 0:
 		die()
 
-func heal(amount: float):
-	"""Restore health"""
-	health = min(max_health, health + amount)
-	health_changed.emit(health)
-
-func damage_hyperthymesia(amount: float):
-	"""Damage perfect memory - affects abilities"""
-	hyperthymesia_integrity = max(0, hyperthymesia_integrity - amount)
-	hyperthymesia_damaged.emit(hyperthymesia_integrity)
-	
-	if hyperthymesia_integrity < 30:
-		print("[WARNING] Hyperthymesia critically damaged!")
-		# ARIA companion may glitch
-
-func add_memory_fragment(fragment_id: String, fragment_data: Dictionary):
-	"""Collect a memory fragment"""
-	if fragment_id not in memory_fragments:
-		memory_fragments.append(fragment_id)
-		# Restore some hyperthymesia
-		hyperthymesia_integrity = min(100, hyperthymesia_integrity + 2.0)
-		memory_fragment_collected.emit(fragment_id)
-		print("[PlayerData] Memory fragment collected: ", fragment_id)
-
-func strengthen_neural_pathway(pathway: String, amount: int):
-	"""Increase skill in a pathway"""
-	if pathway in neural_pathways:
-		neural_pathways[pathway] += amount
-		print("[PlayerData] Neural pathway strengthened: ", pathway, " -> ", neural_pathways[pathway])
-
-func complete_circle(circle_number: int):
-	"""Mark a circle as completed"""
-	circles_completed += 1
-	current_circle = circle_number + 1
-	print("[PlayerData] Circle ", circle_number, " completed!")
+func heal(amount: int):
+	current_health = min(max_health, current_health + amount)
+	health_changed.emit(current_health)
 
 func die():
-	"""Handle player death"""
-	print("[PlayerData] Player died")
-	GameManager.game_over()
+	print("Player died. Resetting to last checkpoint...")
+	# TODO: Implement respawn logic
 
-func get_state_name() -> String:
-	return "ADULT" if current_state == MentalState.ADULT else "CHILD"
+# Memory Management
+func collect_memory(memory_name: String, memory_type: String, power: int = 10) -> bool:
+	var new_memory = {
+		"name": memory_name,
+		"type": memory_type,
+		"power": power,
+		"collected_at_circle": current_circle,
+		"timestamp": Time.get_ticks_msec()
+	}
+	memories.append(new_memory)
+	memory_collected.emit(new_memory)
+	return true
 
-func get_state_color() -> Color:
-	# Adult = Cyan, Child = Magenta
-	return Color.CYAN if current_state == MentalState.ADULT else Color.MAGENTA
+func use_memory(memory_index: int) -> bool:
+	if memory_index >= memories.size():
+		return false
+	var memory = memories[memory_index]
+	equipped_memory = memory
+	return true
+
+func consume_memory(memory_index: int) -> Dictionary:
+	if memory_index >= memories.size():
+		return {}
+	var consumed = memories[memory_index]
+	memories.remove_at(memory_index)
+	return consumed
+
+func get_memory_count() -> int:
+	return memories.size()
+
+func get_memories_of_type(type: String) -> Array[Dictionary]:
+	var filtered: Array[Dictionary] = []
+	for memory in memories:
+		if memory["type"] == type:
+			filtered.append(memory)
+	return filtered
+
+# Circle Management
+func visit_circle(circle: int):
+	if circle > 0 and circle <= 9:
+		circle_progress[circle]["visited"] = true
+
+func progress_circle(circle: int, enemies_defeated: int = 1):
+	if circle > 0 and circle <= 9:
+		circle_progress[circle]["enemies_defeated"] += enemies_defeated
+
+func complete_circle(circle: int):
+	if circle > 0 and circle <= 9:
+		circle_progress[circle]["completed"] = true
+		if circle < 9:
+			current_circle = circle + 1
+			circle_progressed.emit(current_circle)
+
+func get_circle_progress(circle: int) -> Dictionary:
+	if circle in circle_progress:
+		return circle_progress[circle]
+	return {}
+
+# Save/Load
+func save_progress(path: String = "user://saves/progress.json"):
+	var save_data = {
+		"state": current_state,
+		"health": current_health,
+		"circle": current_circle,
+		"memories": memories,
+		"circle_progress": circle_progress,
+		"timestamp": Time.get_ticks_msec()
+	}
+	var json = JSON.stringify(save_data)
+	var file = FileAccess.open(path, FileAccess.WRITE)
+	if file:
+		file.store_string(json)
+
+func load_progress(path: String = "user://saves/progress.json") -> bool:
+	if not ResourceLoader.exists(path):
+		return false
+	var file = FileAccess.open(path, FileAccess.READ)
+	if file:
+		var json_string = file.get_as_text()
+		var json = JSON.new()
+		if json.parse(json_string) == OK:
+			var data = json.data
+			current_state = data.get("state", "adult")
+			current_health = data.get("health", max_health)
+			current_circle = data.get("circle", 1)
+			memories = data.get("memories", [])
+			circle_progress = data.get("circle_progress", {})
+			return true
+	return false
