@@ -1,103 +1,193 @@
 extends Node
 
-## Memory fragment database and collection system
-## Each fragment represents a recovered piece of Steven/Melody's story
+# MemorySystem Singleton - Advanced memory mechanics
+signal memory_skill_used(skill_name: String, effect: String)
+signal memory_consumed(memory_type: String)
+signal memory_puzzle_solved(puzzle_name: String)
 
-var fragment_database: Dictionary = {}
-var collected_fragments: Array[String] = []
+class MemorySkill:
+	var name: String
+	var memory_type: String
+	var power: int
+	var cooldown: float = 0.0
+	var effect: Callable
+	
+	func _init(p_name: String, p_type: String, p_power: int, p_effect: Callable):
+		name = p_name
+		memory_type = p_type
+		power = p_power
+		effect = p_effect
 
-signal fragment_spawned(fragment_id: String, position: Vector2)
-signal collection_milestone(percentage: float)
+# Memory Skill Registry
+var memory_skills: Dictionary = {}
+var active_skills: Array[MemorySkill] = []
+var memory_puzzles: Dictionary = {}
+var solved_puzzles: Array[String] = []
 
 func _ready():
-	_initialize_fragment_database()
-	print("[MemorySystem] Initialized with ", fragment_database.size(), " fragments")
+	add_to_group("autoload")
+	_initialize_memory_skills()
 
-func _initialize_fragment_database():
-	"""Define all memory fragments in the game"""
-	# Circle 1 - Limbo fragments
-	fragment_database["limbo_undiagnosed"] = {
-		"title": "Before the Diagnosis",
-		"description": "Years of doctors saying 'it's just stress'",
-		"pathway": "investigation",
-		"circle": 1,
-		"emotional_weight": 0.3
-	}
-	
-	fragment_database["limbo_childhood"] = {
-		"title": "The Missing Years",
-		"description": "Gaps in time, explained away by adults",
-		"pathway": "intuition",
-		"circle": 1,
-		"emotional_weight": 0.4
-	}
-	
-	# Circle 2 - Lust fragments
-	fragment_database["lust_predator"] = {
-		"title": "The Voyeur",
-		"description": "Eyes that watched too long, too closely",
-		"pathway": "empathy",
-		"circle": 2,
-		"emotional_weight": 0.7
-	}
-	
-	# Circle 3 - Gluttony fragments
-	fragment_database["gluttony_attention"] = {
-		"title": "Career Opportunity",
-		"description": "Your pain became someone's publication",
-		"pathway": "logic",
-		"circle": 3,
-		"emotional_weight": 0.6
-	}
-	
-	# Add more fragments for each circle...
+func _process(delta: float):
+	# Update cooldowns
+	for skill in active_skills:
+		if skill.cooldown > 0:
+			skill.cooldown -= delta
 
-func spawn_fragment(fragment_id: String, world_position: Vector2):
-	"""Create a memory fragment pickup in the world"""
-	if fragment_id not in fragment_database:
-		print("[ERROR] Unknown fragment: ", fragment_id)
-		return
+func _initialize_memory_skills():
+	# Joy-based skills
+	register_skill(MemorySkill.new(
+		"Euphoria Surge",
+		"joy",
+		15,
+		func(): PlayerData.heal(20)
+	))
 	
-	fragment_spawned.emit(fragment_id, world_position)
+	# Trauma-based skills
+	register_skill(MemorySkill.new(
+		"Sorrow Strike",
+		"trauma",
+		20,
+		func(): CombatSystem.deal_damage_to_enemy(30)
+	))
+	
+	# Desire-based skills
+	register_skill(MemorySkill.new(
+		"Hunger Manifest",
+		"desire",
+		18,
+		func(): CombatSystem.steal_enemy_resource(10)
+	))
+	
+	# Anger-based skills
+	register_skill(MemorySkill.new(
+		"Wrath Unleashed",
+		"anger",
+		22,
+		func(): CombatSystem.deal_damage_to_enemy(40)
+	))
+	
+	# Hope-based skills
+	register_skill(MemorySkill.new(
+		"Beacon of Light",
+		"hope",
+		15,
+		func(): PlayerData.heal(25)
+	))
+	
+	# Regret-based skills
+	register_skill(MemorySkill.new(
+		"Temporal Echo",
+		"regret",
+		12,
+		func(): CombatSystem.slow_enemy(2.0)
+	))
 
-func collect_fragment(fragment_id: String) -> bool:
-	"""Player collects a fragment"""
-	if fragment_id in collected_fragments:
+func register_skill(skill: MemorySkill):
+	memory_skills[skill.name] = skill
+
+func get_skill(name: String) -> MemorySkill:
+	return memory_skills.get(name, null)
+
+func get_skills_by_type(memory_type: String) -> Array[MemorySkill]:
+	var filtered: Array[MemorySkill] = []
+	for skill_name in memory_skills:
+		var skill = memory_skills[skill_name]
+		if skill.memory_type == memory_type:
+			filtered.append(skill)
+	return filtered
+
+func use_skill(skill_name: String) -> bool:
+	var skill = get_skill(skill_name)
+	if not skill:
+		return false
+	if skill.cooldown > 0:
 		return false
 	
-	if fragment_id not in fragment_database:
-		return false
-	
-	collected_fragments.append(fragment_id)
-	var fragment = fragment_database[fragment_id]
-	
-	# Add to player data
-	PlayerData.add_memory_fragment(fragment_id, fragment)
-	
-	# Strengthen associated neural pathway
-	var pathway = fragment["pathway"]
-	PlayerData.strengthen_neural_pathway(pathway, 1)
-	
-	# Check for milestones
-	var percentage = (float(collected_fragments.size()) / fragment_database.size()) * 100.0
-	if int(percentage) % 10 == 0:  # Every 10%
-		collection_milestone.emit(percentage)
-	
-	print("[MemorySystem] Fragment collected: ", fragment["title"])
+	# Execute the skill effect
+	skill.effect.call()
+	skill.cooldown = 3.0  # Standard cooldown
+	memory_skill_used.emit(skill_name, "executed")
 	return true
 
-func get_fragment_data(fragment_id: String) -> Dictionary:
-	"""Retrieve fragment information"""
-	return fragment_database.get(fragment_id, {})
+# Memory Consumption - Permanent use of memory for powerful effect
+func consume_memory_for_effect(memory_index: int) -> bool:
+	var memory = PlayerData.consume_memory(memory_index)
+	if memory.is_empty():
+		return false
+	
+	# Apply effect based on memory type
+	match memory["type"]:
+		"trauma":
+			CombatSystem.deal_damage_to_enemy(memory["power"] * 2)
+		"desire":
+			PlayerData.current_health = PlayerData.max_health
+		"anger":
+			CombatSystem.freeze_enemy(1.5)
+		"joy":
+			PlayerData.heal(memory["power"] * 3)
+		"regret":
+			CombatSystem.enemy_damage_self(memory["power"])
+		_:
+			PlayerData.heal(memory["power"])
+	
+	memory_consumed.emit(memory["type"])
+	return true
 
-func get_circle_fragments(circle: int) -> Array[String]:
-	"""Get all fragment IDs for a specific circle"""
-	var result: Array[String] = []
-	for fid in fragment_database.keys():
-		if fragment_database[fid]["circle"] == circle:
-			result.append(fid)
-	return result
+# Puzzle System - Memories unlock puzzles
+func register_puzzle(puzzle_name: String, required_memories: Array[String], reward_circle_progress: int):
+	memory_puzzles[puzzle_name] = {
+		"required_memories": required_memories,
+		"solved": false,
+		"reward_progress": reward_circle_progress
+	}
 
-func get_collection_percentage() -> float:
-	"""Overall completion percentage"""
-	return (float(collected_fragments.size()) / fragment_database.size()) * 100.0
+func solve_puzzle(puzzle_name: String) -> bool:
+	if puzzle_name not in memory_puzzles:
+		return false
+	
+	var puzzle = memory_puzzles[puzzle_name]
+	if puzzle["solved"]:
+		return false
+	
+	# Check if player has required memories
+	for required in puzzle["required_memories"]:
+		var has_memory = false
+		for memory in PlayerData.memories:
+			if memory["type"] == required:
+				has_memory = true
+				break
+		if not has_memory:
+			return false
+	
+	# Solve the puzzle
+	puzzle["solved"] = true
+	solved_puzzles.append(puzzle_name)
+	memory_puzzle_solved.emit(puzzle_name)
+	
+	# Award progress
+	PlayerData.progress_circle(PlayerData.current_circle, puzzle["reward_progress"])
+	return true
+
+func can_solve_puzzle(puzzle_name: String) -> bool:
+	if puzzle_name not in memory_puzzles:
+		return false
+	
+	var puzzle = memory_puzzles[puzzle_name]
+	if puzzle["solved"]:
+		return false
+	
+	# Check if player has required memories
+	for required in puzzle["required_memories"]:
+		var has_memory = false
+		for memory in PlayerData.memories:
+			if memory["type"] == required:
+				has_memory = true
+				break
+		if not has_memory:
+			return false
+	
+	return true
+
+func get_puzzle_info(puzzle_name: String) -> Dictionary:
+	return memory_puzzles.get(puzzle_name, {})
