@@ -1,137 +1,107 @@
 extends CharacterBody2D
-class_name Player
 
-# Dual mind state system
-enum MindState { ADULT, CHILD }
+# Player Controller - Core movement and state management
+const ADULT_SPEED = 150.0
+const CHILD_SPEED = 200.0
+const GRAVITY = 900.0
 
-@export var adult_speed: float = 200.0
-@export var child_speed: float = 150.0
-@export var adult_health: int = 100
-@export var child_health: int = 80
+@onready var sprite = $Sprite2D
+@onready var animation_player = $AnimationPlayer
+@onready var state_transition = $StateTransition
 
-var current_state: MindState = MindState.ADULT
-var current_health: int
-var current_speed: float
+var is_moving = false
+var can_switch_state = true
+var state_animation_playing = false
 
-# Combat
-var in_combat: bool = false
-var combat_target: Node = null
-
-# Animation and sprites
-@onready var sprite: Sprite2D = $Sprite2D
-@onready var animation_player: AnimationPlayer = $AnimationPlayer
-
-signal state_changed(new_state: MindState)
-signal health_changed(new_health: int)
-signal entered_combat
-signal exited_combat
-
-func _ready() -> void:
-	_initialize_state()
-	PlayerData.connect("state_switched", _on_state_switched)
-
-func _initialize_state() -> void:
-	current_state = PlayerData.current_state
-	_update_stats()
-
-func _update_stats() -> void:
-	match current_state:
-		MindState.ADULT:
-			current_speed = adult_speed
-			current_health = adult_health
-			# Visual: Adult form (darker, more defined)
-		MindState.CHILD:
-			current_speed = child_speed
-			current_health = child_health
-			# Visual: Child form (softer, vulnerable)
+func _ready():
+	# Connect to PlayerData signals
+	PlayerData.state_changed.connect(_on_state_changed)
+	PlayerData.health_changed.connect(_on_health_changed)
 	
-	health_changed.emit(current_health)
+	# Connect to CombatSystem signals
+	CombatSystem.combat_started.connect(_on_combat_started)
+	CombatSystem.combat_ended.connect(_on_combat_ended)
+	
+	# Set initial state
+	_update_appearance()
 
-func _physics_process(delta: float) -> void:
-	if in_combat:
+func _physics_process(delta: float):
+	# Don't move during cutscenes or combat
+	if GameManager.current_state != GameManager.GameState.PLAYING:
 		return
 	
-	var input_vector = Vector2.ZERO
-	input_vector.x = Input.get_action_strength("move_right") - Input.get_action_strength("move_left")
-	input_vector.y = Input.get_action_strength("move_down") - Input.get_action_strength("move_up")
-	input_vector = input_vector.normalized()
+	# Get input
+	var input_vector = Input.get_vector("ui_left", "ui_right", "ui_up", "ui_down")
 	
+	# Handle state switching (Space)
+	if Input.is_action_just_pressed("ui_select") and can_switch_state and not CombatSystem.in_combat:
+		_toggle_state()
+	
+	# Movement
 	if input_vector != Vector2.ZERO:
-		velocity = input_vector * current_speed
+		var speed = CHILD_SPEED if PlayerData.is_child_state() else ADULT_SPEED
+		velocity = input_vector.normalized() * speed
+		is_moving = true
+		
+		# Update animation
+		if animation_player:
+			if not animation_player.is_playing():
+				animation_player.play("walk")
 	else:
-		velocity = velocity.move_toward(Vector2.ZERO, current_speed)
+		velocity = Vector2.ZERO
+		is_moving = false
+		if animation_player:
+			animation_player.play("idle")
 	
+	# Apply velocity
 	move_and_slide()
 
-func _unhandled_input(event: InputEvent) -> void:
-	# State switch (only outside combat)
-	if event.is_action_pressed("switch_state") and not in_combat:
-		toggle_state()
+func _toggle_state():
+	if not can_switch_state or CombatSystem.in_combat:
+		return
 	
-	# Interact
-	if event.is_action_pressed("interact"):
-		_try_interact()
+	can_switch_state = false
+	state_animation_playing = true
 	
-	# Memory recall (special ability)
-	if event.is_action_pressed("recall_memory"):
-		_activate_memory_recall()
-
-func toggle_state() -> void:
-	if current_state == MindState.ADULT:
-		current_state = MindState.CHILD
+	# Play transition animation
+	if animation_player and animation_player.has_animation("state_switch"):
+		animation_player.play("state_switch")
+		await animation_player.animation_finished
 	else:
-		current_state = MindState.ADULT
+		# Fallback: instant 0.3s transition
+		await get_tree().create_timer(0.3).timeout
 	
-	PlayerData.switch_state(current_state)
-	_update_stats()
-	state_changed.emit(current_state)
+	# Actually toggle the state
+	PlayerData.toggle_state()
+	_update_appearance()
 	
-	# Play transformation animation
-	if animation_player:
-		animation_player.play("transform")
+	state_animation_playing = false
+	can_switch_state = true
 
-func _on_state_switched(new_state: MindState) -> void:
-	current_state = new_state
-	_update_stats()
+func _update_appearance():
+	# Update sprite and collision based on current state
+	if PlayerData.is_adult_state():
+		sprite.modulate = Color(1.0, 1.0, 1.0, 1.0)  # Normal
+		sprite.scale = Vector2(1.0, 1.0)
+	else:  # Child state
+		sprite.modulate = Color(0.8, 1.0, 1.0, 1.0)  # Slight blue tint
+		sprite.scale = Vector2(0.7, 0.7)  # Smaller
 
-func take_damage(amount: int) -> void:
-	current_health -= amount
-	health_changed.emit(current_health)
-	
-	if current_health <= 0:
-		_die()
+func _on_state_changed(new_state: String):
+	_update_appearance()
 
-func heal(amount: int) -> void:
-	var max_health = adult_health if current_state == MindState.ADULT else child_health
-	current_health = min(current_health + amount, max_health)
-	health_changed.emit(current_health)
+func _on_health_changed(new_health: int):
+	print("Player health: ", new_health, "/", PlayerData.max_health)
+	# TODO: Update health bar UI
 
-func _die() -> void:
-	GameManager.player_died()
-	# Respawn logic or game over
+func _on_combat_started(enemy: Node):
+	print("Combat started with: ", enemy.name if enemy else "Unknown")
+	GameManager.set_game_state(GameManager.GameState.COMBAT)
 
-func enter_combat(target: Node) -> void:
-	in_combat = true
-	combat_target = target
-	entered_combat.emit()
 
-func exit_combat() -> void:
-	in_combat = false
-	combat_target = null
-	exited_combat.emit()
+func _on_combat_ended(victor: String):
+	print("Combat ended. Victor: ", victor)
+	GameManager.set_game_state(GameManager.GameState.PLAYING)
 
-func _try_interact() -> void:
-	# Raycast or area detection for interactables
-	var interactables = get_tree().get_nodes_in_group("interactable")
-	for obj in interactables:
-		if obj.has_method("is_in_range") and obj.is_in_range(global_position):
-			obj.interact(self)
-			break
-
-func _activate_memory_recall() -> void:
-	# Special ability: recall memory for hint/power
-	if MemorySystem.can_recall_memory():
-		var memory = MemorySystem.recall_random_memory()
-		if memory:
-			# Apply memory effect (heal, buff, reveal, etc.)
-			pass
+func take_knockback(direction: Vector2, force: float):
+	velocity += direction.normalized() * force
